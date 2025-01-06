@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <script
+      src="https://thunkable.github.io/webviewer-extension/thunkableWebviewerExtension.js"
+      type="text/javascript"
+    ></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+  </head>
+  <body style="margin: 0px; background-color: #22242C; overflow: hidden;">
+    <!-- Hidden file input -->
+    <input
+      id="input"
+      type="file"
+      multiple="multiple"
+      accept="image/jpeg, image/png, image/jpg"
+      style="display: none"
+    />
+    <!-- Circular button -->
+    <button
+      id="thunkableButton"
+      onmousedown="mousedown()"
+      onmouseup="mouseUp()"
+      onclick="document.getElementById('input').click()"
+      style="
+        color: #FFFFFF;
+        background-color: #F2C94C;
+        font-size: 40px;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 80px;
+        border: none;
+        display: flex;
+        justify-content: center;
+        align-items: center;"
+    >
+      <i class="fas fa-camera"></i>
+    </button>
+  </body>
+
+  <script>
+    let imagesArray = [];
+    let uploadedPhotos = {};
+    let url, formData, apiKey;
+
+    // Add your Photoroom API key here
+    const photoroomApiKey = "sandbox_7524b62d6e00344152587121531a75947b02dbee";
+
+    // File input element
+    const input = document.getElementById("input");
+
+    input.addEventListener("change", async () => {
+      const files = Array.from(input.files);
+      try {
+        // Process images in parallel
+        const processedImages = await Promise.all(
+          files.map((file) => removeBackground(file))
+        );
+
+        // Filter out any null responses
+        imagesArray = processedImages.filter((image) => image !== null);
+
+        console.log("All images processed successfully");
+        sendtoCloudinary();
+      } catch (error) {
+        console.error("Error processing images:", error);
+      }
+    });
+
+    // Function to remove background using Photoroom API
+    async function removeBackground(imageFile) {
+      const photoroomUrl = "https://image-api.photoroom.com/v2/edit";
+      const photoroomFormData = new FormData();
+      photoroomFormData.append("background.color", "333746"); 
+      photoroomFormData.append("outputSize", "200x200"); 
+      photoroomFormData.append("padding", "10%"); 
+      photoroomFormData.append("imageFile", imageFile); 
+
+      try {
+        const response = await fetch(photoroomUrl, {
+          method: "POST",
+          headers: {
+            "x-api-key": photoroomApiKey,
+          },
+          body: photoroomFormData,
+        });
+
+        if (response.ok) {
+          // Convert response to Blob (image)
+          const blob = await response.blob();
+          return new File([blob], imageFile.name, { type: blob.type });
+        } else {
+          const errorResponse = await response.json();
+          console.error("Photoroom API Error:", errorResponse);
+          return null;
+        }
+      } catch (error) {
+        console.error("Error connecting to Photoroom API:", error);
+        return null;
+      }
+    }
+
+    // Function to upload processed images to Cloudinary
+    async function sendtoCloudinary() {
+      for (const image of imagesArray) {
+        formData.set("file", image);
+
+        const config = {
+          method: "POST",
+          body: formData,
+        };
+
+        try {
+          const result = await fetch(url, config);
+          const json = await result.json();
+
+          if (result.status === 200) {
+            uploadedPhotos[json.secure_url] = json.url;
+          } else {
+            console.log("Cloudinary Error:", json.error.message);
+          }
+        } catch (error) {
+          console.error("Cloudinary upload error:", error);
+        }
+      }
+
+      ThunkableWebviewerExtension.postMessage(
+        JSON.stringify({ type: "files", files: uploadedPhotos })
+      );
+
+      // Clear processed images and uploaded photos
+      imagesArray = [];
+      uploadedPhotos = {};
+    }
+
+    // Function to set Cloudinary API configuration
+    function setKey(cloudName, apiKey, preset) {
+      url = `https://api.cloudinary.com/v1_1/${cloudName}/upload`;
+      formData = new FormData();
+
+      formData.append("api_key", apiKey);
+      formData.append("upload_preset", preset);
+    }
+
+    // Receiving messages from Thunkable
+    ThunkableWebviewerExtension.receiveMessage(function (message) {
+      try {
+        const msgFromApp = JSON.parse(message);
+
+        if (msgFromApp.type === "setKey") {
+          setKey(msgFromApp.cloudName, msgFromApp.apiKey, msgFromApp.preset);
+        }
+      } catch (e) {
+        console.error(
+          "An error occurred. Message probably wasn't a valid JSON string"
+        );
+      }
+    });
+
+    ThunkableWebviewerExtension.postMessage(
+      JSON.stringify({ type: "page loaded" })
+    );
+
+    // Button feedback functions
+    function mousedown() {
+      document.getElementById("thunkableButton").style.opacity = "0.4";
+    }
+
+    function mouseUp() {
+      document.getElementById("thunkableButton").style.opacity = "1";
+    }
+  </script>
+</html>
